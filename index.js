@@ -79,7 +79,7 @@ function notify(message) {
     overlay = document.createElement('div');
     overlay.id = 'friendly-alert-overlay';
     overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
+    overlay.innerHTML = /*html*/ `
       <div class='modal-card'>
         <button class='modal-close' type='button' aria-label='إغلاق'>
           <i class='fa-solid fa-xmark'></i>
@@ -109,7 +109,7 @@ function askConfirm(message) {
     overlay = document.createElement('div');
     overlay.id = 'friendly-confirm-overlay';
     overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
+    overlay.innerHTML = /*html*/ `
       <div class='modal-card'>
         <button class='modal-close' type='button' aria-label='إغلاق'>
           <i class='fa-solid fa-xmark'></i>
