@@ -1,6 +1,7 @@
 const STATUS_OPTIONS = ['قيد المراجعة', 'جارٍ التجهيز', 'جاهز للاستلام', 'تم التسليم والدفع', 'ملغي (العميل)', 'ملغي (المسؤول)'];
-const STATUS_CANCELLED_C = STATUS_OPTIONS[4]; 
-const STATUS_CANCELLED_A = STATUS_OPTIONS[5]; 
+const STATUS_DELIVERED   = STATUS_OPTIONS[3];
+const STATUS_CANCELLED_C = STATUS_OPTIONS[4];
+const STATUS_CANCELLED_A = STATUS_OPTIONS[5];
 
 const ADMIN_SETTABLE_STATUSES = STATUS_OPTIONS.filter(s => s !== STATUS_CANCELLED_C);
 
@@ -12,7 +13,7 @@ function statusBadgeClass(status) {
       return 'processing';
     case STATUS_OPTIONS[2]:
       return 'available';
-    case STATUS_OPTIONS[3]:
+    case STATUS_DELIVERED:
       return 'completed';
     case STATUS_CANCELLED_C:
     case STATUS_CANCELLED_A:

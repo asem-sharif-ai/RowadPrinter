@@ -248,7 +248,7 @@ function openOrderStatusModal(id) {
   const order = state.orders.find(o => o.id === id);
   if (!order) return;
 
-  const canEdit = !String(order.status || '').includes('ملغي');
+  const canEdit = order.status !== STATUS_CANCELLED_C && order.status !== STATUS_CANCELLED_A && order.status !== STATUS_DELIVERED;
 
   openAdminForm({
     title: `طلب رقم ${order.id}`,
@@ -270,7 +270,14 @@ function openOrderStatusModal(id) {
       const res = await authFetch('orders/edit-status', { method: 'POST', body: JSON.stringify({ id: order.id, status }) });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        showMessage('حدث خطأ، حاول مرة أخرى');
+        if (data.error === 'edit_locked') {
+          if (data.status) order.status = data.status;
+          showMessage('لم يعد بإمكانك تعديل حالة هذا الطلب');
+          closeAdminForm();
+          renderAdminOrdersTable();
+        } else {
+          showMessage('حدث خطأ، حاول مرة أخرى');
+        }
         return;
       }
 
