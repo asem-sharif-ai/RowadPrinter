@@ -85,6 +85,18 @@ function removeRow(id) {
   renderRows();
 }
 
+function resetOrderForm() {
+  state.rows.forEach(row => {
+    if (row.url) URL.revokeObjectURL(row.url);
+  });
+  state.rows = [];
+
+  const notesInput = document.getElementById('notes-input');
+  if (notesInput) notesInput.value = '';
+
+  if (document.getElementById('rows-wrap')) renderRows();
+}
+
 function findMaterial(name) {
   return (state.materials || []).find(m => m.name === name);
 }
