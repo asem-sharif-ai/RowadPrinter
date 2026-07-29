@@ -163,19 +163,19 @@ function renderRows() {
       <div>
         <label>العرض (سم)</label>
         <input type='number' step='1' min='25' max='1000' class='input-width' value='${row.width}'
-               oninput='this.value = this.value.replace(/\\D/g, ''); if(+this.value > +this.max) this.value = this.max;'
+               oninput="this.value = this.value.replace(/\\D/g, ''); if(+this.value > +this.max) this.value = this.max;"
                onblur='this.value = Math.max(this.min, this.value || this.min)'>
       </div>
       <div>
         <label>الارتفاع (سم)</label>
         <input type='number' step='1' min='25' max='1000' class='input-height' value='${row.height}'
-               oninput='this.value = this.value.replace(/\\D/g, ''); if(+this.value > +this.max) this.value = this.max;'
+               oninput="this.value = this.value.replace(/\\D/g, ''); if(+this.value > +this.max) this.value = this.max;"
                onblur='this.value = Math.max(this.min, this.value || this.min)'>
       </div>
       <div>
         <label>العدد (قطعة)</label>
         <input type='number' step='1' min='1' max='100' class='input-qty' value='${row.qty}'
-               oninput='this.value = this.value.replace(/\\D/g, ''); if(+this.value > +this.max) this.value = this.max;'
+               oninput="this.value = this.value.replace(/\\D/g, ''); if(+this.value > +this.max) this.value = this.max;"
                onblur='this.value = Math.max(this.min, this.value || this.min)'>
       </div>
       <div>
