@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang='ar' dir='rtl'>
+  <head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>مطبعة الرواد</title>
+    <link rel='preconnect' href='https://fonts.googleapis.com'>
+    <link href='https://fonts.googleapis.com/css2?family=Cairo:wght@500;700;900&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap' rel='stylesheet'>
+    <link rel='stylesheet' href='style.css'>
+    <link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css'>
+    <link rel='icon' id='favicon' href='logo.png'>
+  </head>
+  <body>
+    <nav class='nav'>
+      <div class='nav-inner'>
+        <span class='nav-icon' id='nav-icon'><img src='logo.png' alt='مطبعة الرواد'></span>
+        <span class='nav-name' id='nav-name'>جارِ التحميل</span>
+        <div class='nav-links' id='nav-links'>
+          <a class='nav-link' href='#materials'><i class='fa-solid fa-palette'></i><span>الخامات والأسعار</span></a>
+          <a class='nav-link' href='#order'><i class='fa-solid fa-folder-open'></i><span>اطلب الآن</span></a>
+          <a class='nav-link' href='#follow-up'><i class='fa-solid fa-clipboard-check'></i><span>متابعة الطلب</span></a>
+          <a class='nav-link' href='#orders-log'><i class='fa-solid fa-box-archive'></i></i><span>سجل الطلبات</span></a>
+        </div>
+        <a class='nav-cta' id='cta-define' href='#'><i class='fa-solid fa-circle-user'></i><span>كود التعريف</span></a>
+        <button class='nav-toggle' id='nav-toggle' type='button' aria-label='القائمة' aria-expanded='false'>
+          <i class='fa-solid fa-bars'></i>
+        </button>
+      </div>
+    </nav>
+  <header class='hero'>
+    <div class='hero-inner'>
+      <h1 class='hero-name' id='hero-name'>مطبعة الرواد</h1>
+      <p class='hero-bio' id='hero-bio'>نقدّم حلول طباعة رقمية احترافية بأعلى معايير الجودة والدقة لصورك ولوحاتك وإعلاناتك</p>
+      <div class='hero-contact-group' id='hero-contact-group'>
+        <a class='hero-contact-btn call' id='hero-contact-call' href='tel:+201008600602'>
+          <i class='fa-solid fa-phone'></i><span id='hero-contact-call-text'>اتصل بنا</span>
+        </a>
+        <a class='hero-contact-btn location' id='hero-contact-location' href='https://maps.app.goo.gl/y7buJD3Rmx4DCpwYA' target='_blank' rel='noopener'>
+          <i class='fa-solid fa-location-dot'></i><span id='hero-contact-location-text'>الموقع</span>
+        </a>
+      </div>
+    </div>
+  </header>
+  <main class='container' id='container'></main>
+  <footer class='site-footer'>
+    <p>© <span id='footer-year'></span> <span id='footer-name'></span> | جميع الحقوق محفوظة لمطبعة الرواد.</p>
+    <p class='footer-credit'><a id='footer-dev-link' href='https://asem-sharif-ai.github.io' target='_blank' rel='noopener'>عاصم شريف</a></p>
+  </footer>
+<div class='modal-overlay' id='verify-modal-overlay'>
+  <div class='modal-card'>
+    <button class='modal-close' id='verify-modal-close' type='button' aria-label='إغلاق'>
+      <i class='fa-solid fa-xmark'></i>
+    </button>
+    <h3 class='modal-title'>كود التعريف</h3>
+    <input type='text' id='verify-code-input' class='form-input' placeholder='أدخل كود التعريف الخاص بك للمتابعة'>
+    <p class='modal-message' id='verify-modal-message'></p>
+    <button class='btn-primary' id='verify-code-submit' type='button'>تأكيد</button>
+  </div>
+</div>
+<div class='modal-overlay' id='admin-form-overlay'>
+  <div class='modal-card'>
+    <button class='modal-close' id='admin-form-close' type='button' aria-label='إغلاق'>
+      <i class='fa-solid fa-xmark'></i>
+    </button>
+    <h3 class='modal-title' id='admin-form-title'></h3>
+    <div id='admin-form-fields'></div>
+    <p class='modal-message' id='admin-form-message'></p>
+    <button class='btn-primary' id='admin-form-submit' type='button'></button>
+  </div>
+</div>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'></script>
+<script src='orderForm.js'></script>
+<script src='rootView.js'></script>
+<script src='adminView.js'></script>
+<script src='agentView.js'></script>
+<script src='index.js'></script>
+</body>
+</html>
