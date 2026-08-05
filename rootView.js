@@ -1,17 +1,20 @@
-const STATUS_OPTIONS = ['قيد المراجعة', 'جارٍ التجهيز', 'جاهز للاستلام', 'تم التسليم والدفع', 'ملغي (العميل)', 'ملغي (المسؤول)'];
-const STATUS_DELIVERED   = STATUS_OPTIONS[3];
-const STATUS_CANCELLED_C = STATUS_OPTIONS[4];
-const STATUS_CANCELLED_A = STATUS_OPTIONS[5];
+const STATUS_OPTIONS = ['بانتظار التأكيد', 'قيد المراجعة', 'جارٍ التجهيز', 'جاهز للاستلام', 'تم التسليم والدفع', 'ملغي (العميل)', 'ملغي (المسؤول)'];
+const STATUS_UNCONFIRMED = STATUS_OPTIONS[0];
+const STATUS_DELIVERED   = STATUS_OPTIONS[4];
+const STATUS_CANCELLED_C = STATUS_OPTIONS[5];
+const STATUS_CANCELLED_A = STATUS_OPTIONS[6];
 
-const ADMIN_SETTABLE_STATUSES = STATUS_OPTIONS.filter(s => s !== STATUS_CANCELLED_C);
+const ADMIN_SETTABLE_STATUSES = STATUS_OPTIONS.filter(s => s !== STATUS_CANCELLED_C && s !== STATUS_UNCONFIRMED);
 
 function statusBadgeClass(status) {
   switch (status) {
-    case STATUS_OPTIONS[0]:
-      return 'pending';
+    case STATUS_UNCONFIRMED:
+      return 'unconfirmed';
     case STATUS_OPTIONS[1]:
-      return 'processing';
+      return 'pending';
     case STATUS_OPTIONS[2]:
+      return 'processing';
+    case STATUS_OPTIONS[3]:
       return 'available';
     case STATUS_DELIVERED:
       return 'completed';
@@ -23,38 +26,62 @@ function statusBadgeClass(status) {
   }
 }
 
+function wireAdminSelect(id, onChange) {
+  const select = document.getElementById(id);
+  if (!select) return;
+
+  const toggle = select.querySelector('.menu-select-toggle');
+  const label = select.querySelector('.menu-select-label');
+
+  toggle.addEventListener('click', e => {
+    e.stopPropagation();
+    const isOpen = select.classList.contains('open');
+    closeAllMaterialSelects();
+    select.classList.toggle('open', !isOpen);
+  });
+
+  select.querySelector('.menu-select-menu').addEventListener('click', e => {
+    const opt = e.target.closest('.menu-option');
+    if (!opt) return;
+    e.stopPropagation();
+    select.querySelectorAll('.menu-option').forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+    label.textContent = opt.textContent;
+    select.classList.remove('open');
+    onChange(opt.dataset.value);
+  });
+}
+
 async function renderRootView() {
-  document.getElementById('container').innerHTML = /*html*/ `
+  const container = document.getElementById('container');
+  container.innerHTML = /*html*/ `
     <section class='admin-section'>
       <div class='admin-tabs' id='admin-tabs'>
-        <button class='admin-tab active' data-tab='materials'>إدارة الخامات</button>
-        <button class='admin-tab' data-tab='admins'>إدارة المسؤولين</button>
+        <button class='admin-tab active' data-tab='orders'>إدارة الطلبات</button>
+        <button class='admin-tab' data-tab='materials'>إدارة الخامات</button>
         <button class='admin-tab' data-tab='agents'>إدارة المندوبين</button>
         <button class='admin-tab' data-tab='prices'>خطط الأسعار</button>
-        <button class='admin-tab' data-tab='orders'>طلبات العملاء</button>
       </div>
       <div class='admin-panel-body' id='admin-panel-body'>
         <p class='empty-note'>جارٍ التحميل...</p>
       </div>
     </section>
   `;
+  container.classList.add('has-content');
 
-  const [adminsRes, agentsRes, ordersRes] = await Promise.all([
-    authFetch('admins/list'), authFetch('agents/list'), authFetch('orders/list'),
+  const [agentsRes, ordersRes] = await Promise.all([
+    authFetch('agents/list'), authFetch('orders/list'),
   ]);
 
-  const adminsData = await adminsRes.json();
   const agentsData = await agentsRes.json();
   const ordersData = await ordersRes.json();
-  state.admins = adminsData.ok ? adminsData.admins : [];
   state.agents = agentsData.ok ? agentsData.agents : [];
   state.orders = ordersData.ok ? ordersData.orders : [];
 
   const panelBody = document.getElementById('admin-panel-body');
   const tabRenderers = {
     materials:    renderMaterialsPanel,
-    admins: () => renderPeoplePanel(panelBody, { title: 'إدارة المسؤولين', addLabel: 'إضافة مسؤول', kind: 'admins' }),
-    agents: () => renderPeoplePanel(panelBody, { title: 'إدارة المندوبين', addLabel: 'إضافة مندوب', kind: 'agents' }),
+    agents: () => renderAgentsPanel(panelBody),
     prices: () => renderPricesPanel(panelBody),
     orders: () => renderOrdersPanel(panelBody),
   };
@@ -67,7 +94,7 @@ async function renderRootView() {
     });
   });
 
-  renderMaterialsPanel(panelBody);
+  renderOrdersPanel(panelBody);
 }
 
 // ---------- Materials ---------- ----------
@@ -80,12 +107,7 @@ function renderMaterialsPanel(container) {
         <i class='fa-solid fa-plus'></i> إضافة خامة
       </button>
     </div>
-    <div class='admin-table-wrap'>
-      <table class='admin-table table-eq material-table'>
-        <thead><tr><th>الصورة</th><th>الاسم</th><th>الوصف</th><th>السعر</th><th></th></tr></thead>
-        <tbody id='materials-table-body'></tbody>
-      </table>
-    </div>
+    <div class='admin-material-grid' id='materials-table-body'></div>
   `;
   document.getElementById('add-material-btn').addEventListener('click', () => openMaterialForm());
   renderMaterialsTable();
@@ -96,42 +118,44 @@ function renderMaterialsTable() {
   if (!body) return;
 
   if (!state.materials.length) {
-    body.innerHTML = /*html*/ `<tr><td colspan='5' class='empty-note'>لا توجد خامات مضافة</td></tr>`;
+    body.innerHTML = /*html*/ `<div class='empty-note'>لا توجد خامات مضافة</div>`;
     return;
   }
 
   body.innerHTML = state.materials.map(m => /*html*/ `
-    <tr data-name='${m.name}'>
-      <td><img class='material-thumb' src='${m.image || ''}' alt='' onerror="this.classList.add('material-thumb-empty')"></td>
-      <td>${m.name}</td>
-      <td>${m.desc || ''}</td>
-      <td>${m.price || 0} ج.م</td>
-      <td class='admin-row-actions'>
+    <div class='admin-material-card' data-name='${m.name}'>
+      <div class='admin-material-card-main'>
+        <span class='admin-material-card-name'>${m.name}</span>
+        <span class='admin-material-card-price'>${m.price || 0} ج.م</span>
+      </div>
+      <div class='admin-material-card-actions'>
         <span class='status-badge ${m.available !== false ? 'available' : 'unavailable'} btn-badge' role='button' tabindex='0' title='تغيير حالة التوفر'>${m.available !== false ? 'متاحة' : 'غير متاحة'}</span>
-        <button class='icon-action-btn edit-material-btn' title='تعديل'><i class='fa-solid fa-pen'></i></button>
-        <button class='icon-action-btn danger delete-material-btn' title='حذف'><i class='fa-solid fa-trash'></i></button>
-      </td>
-    </tr>
+        <div class='admin-material-card-icons'>
+          <button class='icon-action-btn edit-material-btn' title='تعديل'><i class='fa-solid fa-pen'></i></button>
+          <button class='icon-action-btn danger delete-material-btn' title='حذف'><i class='fa-solid fa-trash'></i></button>
+        </div>
+      </div>
+    </div>
   `).join('');
 
   body.querySelectorAll('.btn-badge').forEach(badge => {
     badge.addEventListener('click', e => {
       e.stopPropagation();
-      const name = badge.closest('tr').dataset.name;
+      const name = badge.closest('.admin-material-card').dataset.name;
       toggleMaterialAvailability(name);
     });
   });
 
   body.querySelectorAll('.edit-material-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const name = btn.closest('tr').dataset.name;
+      const name = btn.closest('.admin-material-card').dataset.name;
       openMaterialForm(state.materials.find(m => m.name === name));
     });
   });
 
   body.querySelectorAll('.delete-material-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const name = btn.closest('tr').dataset.name;
+      const name = btn.closest('.admin-material-card').dataset.name;
       deleteMaterial(name);
     });
   });
@@ -164,34 +188,21 @@ async function toggleMaterialAvailability(name) {
 function openMaterialForm(material) {
   const isEdit = Boolean(material);
 
-  const FIELD_OPTIONS = [
-    ...(isEdit ? [] : [{ key: 'name', label: 'الاسم' }]),
-    { key: 'desc', label: 'الوصف' },
-    { key: 'image', label: 'رابط الصورة' },
-    { key: 'price', label: 'السعر (ج.م/م²)' },
-  ];
-
-  const draft = {
-    name: material?.name || '',
-    desc: material?.desc || '',
-    image: material?.image || '',
-    price: material?.price ?? '',
-    available: material ? material.available !== false : true,
-  };
-
   openAdminForm({
     title: isEdit ? 'تعديل الخامة' : 'إضافة خامة',
     submitLabel: isEdit ? 'حفظ' : 'إضافة',
     fields: [
-      { key: 'field', label: 'البيانات', value: FIELD_OPTIONS[0].key },
-      { key: 'value', label: FIELD_OPTIONS[0].label, value: draft[FIELD_OPTIONS[0].key] },
+      { key: 'name', label: 'الاسم', value: material?.name || '', disabled: isEdit },
+      { key: 'price', label: 'السعر (ج.م/م²)', type: 'number', value: material?.price ?? '' },
+      { key: 'image', label: 'رابط الصورة (اختياري)', value: material?.image || '' },
     ],
     onSubmit: async (values, showMessage) => {
-      if (!draft.name) {
+      const name = isEdit ? material.name : values.name;
+      if (!name) {
         showMessage('اسم الخامة مطلوب');
         return;
       }
-      if (!draft.price) {
+      if (!values.price) {
         showMessage('سعر الخامة مطلوب');
         return;
       }
@@ -199,11 +210,11 @@ function openMaterialForm(material) {
       const res = await authFetch(action, {
         method: 'POST',
         body: JSON.stringify({
-          name: draft.name,
-          desc: draft.desc,
-          image: draft.image,
-          price: Number(draft.price) || 0,
-          available: draft.available,
+          name,
+          desc: material?.desc || '',
+          image: values.image,
+          price: Number(values.price) || 0,
+          available: material ? material.available !== false : true,
         }),
       });
       const data = await res.json();
@@ -220,50 +231,6 @@ function openMaterialForm(material) {
       closeAdminForm();
       renderMaterialsTable();
     },
-  });
-
-  wireMaterialFieldPicker(FIELD_OPTIONS, draft, isEdit);
-}
-
-function wireMaterialFieldPicker(FIELD_OPTIONS, draft, isEdit) {
-  const oldFieldInput = document.getElementById('field-field');
-  if (!oldFieldInput) return;
-  const wrap = document.createElement('div');
-  wrap.innerHTML = /*html*/ `
-    <div class='menu-select' id='material-field-select'>
-      <button type='button' class='menu-select-toggle wide-select'>
-        <span class='menu-select-label'>${FIELD_OPTIONS[0].label}</span>
-        <i class='fa-solid fa-chevron-down'></i>
-      </button>
-      <ul class='menu-select-menu' role='listbox'>
-        ${FIELD_OPTIONS.map((f, i) => `<li class='menu-option${i === 0 ? ' selected' : ''}' data-value='${f.key}' role='option'>${f.label}</li>`).join('')}
-      </ul>
-    </div>
-    <input type='hidden' id='field-field' value='${FIELD_OPTIONS[0].key}'>
-  `;
-  const fragment = document.createDocumentFragment();
-  while (wrap.firstChild) fragment.appendChild(wrap.firstChild);
-  oldFieldInput.replaceWith(fragment);
-  const valueInput = document.getElementById('field-value');
-  const label = valueInput?.parentElement?.querySelector('label');
-  const sync = key => {
-    const opt = FIELD_OPTIONS.find(f => f.key === key);
-    if (label && opt) label.textContent = opt.label;
-    if (valueInput) {
-      valueInput.type = key === 'price' ? 'number' : 'text';
-      valueInput.value = draft[key] ?? '';
-      valueInput.disabled = isEdit && key === 'name';
-    }
-    document.querySelector('#material-field-select .menu-select-label').textContent = opt.label;
-  };
-  if (valueInput) {
-    valueInput.addEventListener('input', (e) => {
-      draft[document.getElementById('field-field').value] = e.target.value;
-    });
-  }
-  wireAdminSelect('material-field-select', key => {
-    document.getElementById('field-field').value = key;
-    sync(key);
   });
 }
 
@@ -284,87 +251,66 @@ async function deleteMaterial(name) {
 
 // ---------- People (Admins/Agents) ---------- ----------
 
-function renderPeoplePanel(container, { title, addLabel, kind }) {
-  const isAgents = kind === 'agents';
+function renderAgentsPanel(container) {
   container.innerHTML = /*html*/ `
     <div class='admin-header'>
-      <h3 class='section-title'>${title}</h3>
-      <button class='btn-primary' id='add-${kind}-btn' type='button'>
-        <i class='fa-solid fa-user-plus'></i> ${addLabel}
+      <h3 class='section-title'>إدارة المندوبين</h3>
+      <button class='btn-primary' id='add-agents-btn' type='button'>
+        <i class='fa-solid fa-user-plus'></i> إضافة مندوب
       </button>
     </div>
-    <div class='admin-table-wrap'>
-      <table class='admin-table table-eq'>
-        <thead>
-          <tr>
-            <th>الاسم</th>
-            ${isAgents ? '<th>الهاتف</th>' : ''}
-            <th>تاريخ الإنشاء</th>
-            <th>آخر ظهور</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id='${kind}-table-body'></tbody>
-      </table>
-    </div>
+    <div class='admin-material-grid' id='agents-table-body'></div>
   `;
 
-  document.getElementById(`add-${kind}-btn`).addEventListener('click', () => openPersonForm(kind, addLabel));
-  renderPeopleTable(kind);
+  document.getElementById('add-agents-btn').addEventListener('click', () => openPersonForm());
+  renderAgentsTable();
 }
 
-function renderPeopleTable(kind) {
-  const isAgents = kind === 'agents';
-  const body = document.getElementById(`${kind}-table-body`);
+function renderAgentsTable() {
+  const body = document.getElementById('agents-table-body');
   if (!body) return;
 
-  const people = state[kind] || [];
+  const people = state.agents || [];
   if (!people.length) {
-    body.innerHTML = /*html*/ `<tr><td colspan='${isAgents ? 5 : 4}' class='empty-note'>لا توجد بيانات</td></tr>`;
+    body.innerHTML = /*html*/ `<div class='empty-note'>لا توجد بيانات</div>`;
     return;
   }
 
   body.innerHTML = people.map(p => `
-    <tr data-id='${p.id}'>
-      <td>${p.name || ''}</td>
-      ${isAgents ? `<td>${p.phone || ''}</td>` : ''}
-      <td>${formatDate(p.createdAt)}</td>
-      <td>${p.lastSeen ? formatDate(p.lastSeen) : '—'}</td>
-      <td class='admin-row-actions'>
-        <button class='icon-action-btn danger delete-person-btn' title='حذف'><i class='fa-solid fa-trash'></i></button>
-      </td>
-    </tr>
+    <div class='admin-material-card' data-id='${p.id}'>
+      <div class='admin-material-card-main'>
+        <span class='admin-material-card-name'>${p.name || ''}</span>
+        <span class='admin-material-card-price'>${p.phone || ''}</span>
+      </div>
+      <button class='icon-action-btn danger delete-person-btn' title='حذف'><i class='fa-solid fa-trash'></i></button>
+    </div>
   `).join('');
 
   body.querySelectorAll('.delete-person-btn').forEach(btn => {
-    btn.addEventListener('click', () => deletePerson(kind, btn.closest('tr').dataset.id));
+    btn.addEventListener('click', () => deletePerson(btn.closest('.admin-material-card').dataset.id));
   });
 }
 
-function openPersonForm(kind, addLabel) {
-  const isAgents = kind === 'agents';
-  const fields = [{ key: 'name', label: 'الاسم' }];
-  if (isAgents) {
-    fields.push({ key: 'phone', label: 'رقم الهاتف' });
-  }
-  fields.push({ key: 'password', label: 'كلمة المرور', type: 'password' });
+function openPersonForm() {
+  const fields = [
+    { key: 'name', label: 'الاسم' },
+    { key: 'phone', label: 'رقم الهاتف' },
+    { key: 'password', label: 'كلمة المرور', type: 'password' },
+  ];
 
   openAdminForm({
-    title: addLabel,
+    title: 'إضافة مندوب',
     submitLabel: 'إضافة',
     fields,
     onSubmit: async (values, showMessage) => {
-      if (!values.name || !values.password || (isAgents && !values.phone)) {
-        showMessage(isAgents ? 'الاسم ورقم الهاتف وكلمة المرور مطلوبة' : 'الاسم وكلمة المرور مطلوبان');
+      if (!values.name || !values.password || !values.phone) {
+        showMessage('الاسم ورقم الهاتف وكلمة المرور مطلوبة');
         return;
       }
 
-      const payload = { name: values.name, password: values.password };
-      if (isAgents) {
-        payload.phone = values.phone;
-      }
+      const payload = { name: values.name, password: values.password, phone: values.phone };
 
-      const res = await authFetch(`${kind}/add`, { method: 'POST', body: JSON.stringify(payload) });
+      const res = await authFetch('agents/add', { method: 'POST', body: JSON.stringify(payload) });
       const data = await res.json();
       if (!res.ok || !data.ok) {
         const messages = {
@@ -375,22 +321,25 @@ function openPersonForm(kind, addLabel) {
         return;
       }
 
-      const record = { id: data.id, name: data.name, createdAt: data.createdAt, lastSeen: data.lastSeen };
-      if (isAgents) {
-        record.phone = data.phone;
-        record.pricingMap = data.pricingMap;
-      }
-      state[kind].push(record);
+      const record = {
+        id: data.id,
+        name: data.name,
+        createdAt: data.createdAt,
+        lastSeen: data.lastSeen,
+        phone: data.phone,
+        pricingMap: data.pricingMap,
+      };
+      state.agents.push(record);
 
       closeAdminForm();
-      renderPeopleTable(kind);
+      renderAgentsTable();
     },
   });
 }
 
-async function deletePerson(kind, id) {
+async function deletePerson(id) {
   if (!await askConfirm('تأكيد الحذف؟')) return;
-  const res = await authFetch(`${kind}/delete`, {
+  const res = await authFetch('agents/delete', {
     method: 'POST',
     body: JSON.stringify({ id }),
   });
@@ -400,19 +349,16 @@ async function deletePerson(kind, id) {
     return;
   }
 
-  const removed = state[kind].find(p => p.id === id);
-  state[kind] = state[kind].filter(p => p.id !== id);
-  renderPeopleTable(kind);
+  const removed = state.agents.find(p => p.id === id);
+  state.agents = state.agents.filter(p => p.id !== id);
+  renderAgentsTable();
 
-  // The server cascades: deleting an agent also deletes all their orders
-  // (matched by phone). Mirror that locally so the orders table doesn't
-  // keep showing orders that no longer exist.
-  if (kind === 'agents' && removed && removed.phone && Array.isArray(state.orders)) {
+  if (removed && removed.phone && Array.isArray(state.orders)) {
     state.orders = state.orders.filter(o => o.phone !== removed.phone);
     if (document.getElementById('orders-table-body')) renderOrdersTable();
   }
 
-  if (kind === 'agents' && removed && pricesSelectedAgentId === removed.id) {
+  if (removed && pricesSelectedAgentId === removed.id) {
     pricesSelectedAgentId = null;
   }
 }
@@ -520,8 +466,6 @@ function renderPricesTable() {
   updatePricesBtnState();
 }
 
-// Shows just the price, or the original struck through followed by the
-// pending price, whenever the held (unsaved) value differs from the saved one.
 function planPriceBadgeContent(current, held) {
   if (held === current) return `${held} ج.م`;
   return `<del>${current}</del> ${held} ج.م`;
@@ -622,55 +566,10 @@ function wireUpdatePricesBtn() {
 
 // ---------- Orders ---------- ----------
 
-const DELETE_FILTER_LABELS = {
-  all:           'كل الطلبات',
-  today:         'طلبات اليوم',
-  this_week:     'طلبات هذا الأسبوع',
-  this_month:    'طلبات هذا الشهر',
-  this_year:     'طلبات هذا العام',
-  older_day:     'الطلبات الأقدم من يوم',
-  older_week:    'الطلبات الأقدم من أسبوع',
-  older_month:   'الطلبات الأقدم من شهر',
-  older_year:    'الطلبات الأقدم من عام',
-  cancelled:     'الطلبات الملغاة',
-  non_cancelled: 'الطلبات غير الملغاة',
-  agent_only:    'طلبات المندوبين',
-  non_agent:     'طلبات غير المندوبين (الزوار)',
-};
-
-const ORDERS_TABLE_FILTERS = {
-  all: () => true,
-  today: o => {
-    const [d, r] = [ orderCreatedDate(o), new Date() ];
-    return d ? (d.getFullYear() === r.getFullYear() && d.getMonth() === r.getMonth() && d.getDate() === r.getDate()) : false;
-  },
-  this_week: o => {
-    const d = orderCreatedDate(o);
-    if (!d) return false;
-    return d >= startOfWeek(new Date());
-  },
-  this_month: o => {
-    const d = orderCreatedDate(o);
-    if (!d) return false;
-    const now = new Date();
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-  },
-  this_year: o => {
-    const d = orderCreatedDate(o);
-    if (!d) return false;
-    return d.getFullYear() === new Date().getFullYear();
-  },
-  older_day: o => orderAgeMs(o) > 1 * 24 * 60 * 60 * 1000,
-  older_week: o => orderAgeMs(o) > 7 * 24 * 60 * 60 * 1000,
-  older_month: o => orderAgeMs(o) > 30 * 24 * 60 * 60 * 1000,
-  older_year: o => orderAgeMs(o) > 365 * 24 * 60 * 60 * 1000,
-  cancelled: o => (o.status || '').includes('ملغي'),
-  non_cancelled: o => !(o.status || '').includes('ملغي'),
-  agent_only: o => Boolean(o.agentId),
-  non_agent: o => !o.agentId,
-};
-
-let ordersTableFilter = 'all';
+let adminStatusFilter = 'all';
+let adminAgentFilter = 'all';
+let adminDateFilter = 'all';
+let adminSearchQuery = '';
 
 async function loadOrders() {
   try {
@@ -684,171 +583,318 @@ async function loadOrders() {
 }
 
 function renderOrdersPanel(container) {
-  ordersTableFilter = 'all';
+  adminStatusFilter = 'all';
+  adminAgentFilter = 'all';
+  adminDateFilter = 'all';
+  adminSearchQuery = '';
+
   container.innerHTML = /*html*/ `
     <div class='admin-header'>
-      <h3 class='section-title'>طلبات العملاء</h3>
+      <h3 class='section-title'>طلبات المندوبين</h3>
       <div class='header-controls'>
-        <div class='menu-select wide-select' id='delete-orders-filter-select'>
-          <button type='button' class='menu-select-toggle'>
-            <span class='menu-select-label'>كل الطلبات</span>
+        <div class='admin-search-wrap'>
+          <input type='text' id='admin-search' class='form-input' placeholder='ابحث برقم الطلب'>
+        </div>
+        <div class='menu-select' id='admin-date-filter-select'>
+          <button type='button' class='menu-select-toggle wide-select'>
+            <span class='menu-select-label'>كل الأوقات</span>
             <i class='fa-solid fa-chevron-down'></i>
           </button>
           <ul class='menu-select-menu' role='listbox'>
-            <li class='menu-option selected' data-value='all' role='option'>كل الطلبات</li>
-            <li class='menu-option' data-value='today' role='option'>اليوم</li>
-            <li class='menu-option' data-value='older_day' role='option'>الأقدم من يوم</li>
-            <li class='menu-option' data-value='this_week' role='option'>هذا الأسبوع</li>
-            <li class='menu-option' data-value='older_week' role='option'>الأقدم من أسبوع</li>
-            <li class='menu-option' data-value='this_month' role='option'>هذا الشهر</li>
-            <li class='menu-option' data-value='older_month' role='option'>الأقدم من شهر</li>
-            <li class='menu-option' data-value='this_year' role='option'>هذا العام</li>
-            <li class='menu-option' data-value='older_year' role='option'>الأقدم من عام</li>
-            <li class='menu-option' data-value='cancelled' role='option'>الملغاة</li>
-            <li class='menu-option' data-value='non_cancelled' role='option'>غير الملغاة</li>
-            <li class='menu-option' data-value='agent_only' role='option'>طلبات المندوبين</li>
-            <li class='menu-option' data-value='non_agent' role='option'>طلبات غير المندوبين</li>
+              <li class='menu-option selected' data-value='all' role='option'>كل الأوقات</li>
+              <li class='menu-option' data-value='today' role='option'>هذا اليوم</li>
+              <li class='menu-option' data-value='this_week' role='option'>هذا الأسبوع</li>
+              <li class='menu-option' data-value='this_month' role='option'>هذا الشهر</li>
+              <li class='menu-option' data-value='this_year' role='option'>هذا العام</li>
           </ul>
         </div>
-        <button class='btn-danger' id='delete-orders-btn' type='button'>
-          <i class='fa-solid fa-trash'></i> حذف
-        </button>
+        <div class='menu-select' id='admin-status-filter-select'>
+          <button type='button' class='menu-select-toggle wide-select'>
+            <span class='menu-select-label'>كل الحالات</span>
+            <i class='fa-solid fa-chevron-down'></i>
+          </button>
+          <ul class='menu-select-menu' role='listbox'>
+            <li class='menu-option selected' data-value='all' role='option'>كل الحالات</li>
+            ${STATUS_OPTIONS.map(s => `<li class='menu-option' data-value='${s}' role='option'>${s}</li>`).join('')}
+          </ul>
+        </div>
+        <div class='menu-select' id='admin-agent-filter-select'>
+          <button type='button' class='menu-select-toggle wide-select'>
+            <span class='menu-select-label'>كل العملاء</span>
+            <i class='fa-solid fa-chevron-down'></i>
+          </button>
+          <ul class='menu-select-menu' role='listbox'>
+            <li class='menu-option selected' data-value='all' role='option'>كل العملاء</li>
+          </ul>
+        </div>
       </div>
     </div>
     <div class='admin-table-wrap'>
       <table class='admin-table'>
         <thead>
           <tr>
-            <th>رقم الطلب</th>
-            <th>الاسم</th>
-            <th>الهاتف</th>
-            <th>الإجمالي</th>
-            <th>الحالة</th>
-            <th>الملفات</th>
-            <th>التاريخ</th>
+            <th>رقم الطلب</th> <th>الاسم</th> <th>الهاتف</th> <th>الإجمالي</th> <th>الحالة</th> <th>الملفات</th> <th>التاريخ</th>
           </tr>
         </thead>
         <tbody id='orders-table-body'></tbody>
       </table>
     </div>
   `;
+
+  populateAdminAgentFilter();
+  wireAdminFilters();
   renderOrdersTable();
-  wireDeleteOrders();
 }
 
-function orderAgeMs(order) {
-  const created = Date.parse(order.createdAt || '');
-  if (Number.isNaN(created)) return 0;
-  return Date.now() - created;
-}
+function populateAdminAgentFilter() {
+  const menu = document.querySelector('#admin-agent-filter-select .menu-select-menu');
+  if (!menu) return;
 
-function orderCreatedDate(order) {
-  const created = Date.parse(order.createdAt || '');
-  return Number.isNaN(created) ? null : new Date(created);
-}
-
-function isSameDay(d, ref) {
-  return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
-}
-
-function startOfWeek(d) {
-  const day = d.getDay();
-  const diff = (day + 1) % 7;
-  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  start.setDate(start.getDate() - diff);
-  return start;
-}
-
-function wireDeleteOrders() {
-  const btn = document.getElementById('delete-orders-btn');
-  const select = document.getElementById('delete-orders-filter-select');
-  if (!btn || !select) return;
-
-  const toggle = select.querySelector('.menu-select-toggle');
-  const label = select.querySelector('.menu-select-label');
-  const options = select.querySelectorAll('.menu-option');
-
-  toggle.addEventListener('click', e => {
-    e.stopPropagation();
-    const isOpen = select.classList.contains('open');
-    closeAllMaterialSelects();
-    select.classList.toggle('open', !isOpen);
+  const agentMap = new Map();
+  state.agents.forEach(a => {
+    if (a.phone) agentMap.set(a.phone, a.name || a.phone);
   });
-
-  options.forEach(opt => {
-    opt.addEventListener('click', e => {
-      e.stopPropagation();
-      ordersTableFilter = opt.dataset.value;
-      label.textContent = opt.textContent;
-      options.forEach(o => o.classList.remove('selected'));
-      opt.classList.add('selected');
-      select.classList.remove('open');
-      renderOrdersTable();
-    });
-  });
-
-  btn.addEventListener('click', async () => {
-    const filterLabel = DELETE_FILTER_LABELS[ordersTableFilter] || ordersTableFilter;
-
-    if (!await askConfirm(`سيتم حذف ${filterLabel} نهائيًا مع كل المجلدات الخاصة بها، هل أنت متأكد؟`)) return;
-
-    btn.disabled = true;
-    const originalHtml = btn.innerHTML;
-    btn.innerHTML = /*html*/ `<i class='fa-solid fa-spinner fa-spin'></i> جارٍ الحذف...`;
-
-    try {
-      const res = await authFetch('orders/delete-all', {
-        method: 'POST',
-        body: JSON.stringify({ filter: ordersTableFilter }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        notify('تعذر حذف الطلبات');
-        return;
-      }
-      notify(`تم حذف ${data.deletedCount} طلب/طلبات`);
-      await loadOrders();
-    } catch (e) {
-      console.error(e);
-      notify('تعذر الاتصال بالخادم');
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = originalHtml;
+  state.orders.forEach(o => {
+    if (o.agentId && o.phone && !agentMap.has(o.phone)) {
+      agentMap.set(o.phone, o.name || o.phone);
     }
   });
+
+  const agentOptions = Array.from(agentMap.entries())
+    .map(([phone, name]) => `<li class='menu-option' data-value='${phone}' role='option'>${name}</li>`)
+    .join('');
+
+  menu.innerHTML = /*html*/ `
+    <li class='menu-option selected' data-value='all' role='option'>كل العملاء</li>
+    ${agentOptions}
+  `;
+}
+
+function wireAdminFilters() {
+  const searchInput = document.getElementById('admin-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      adminSearchQuery = searchInput.value.trim().toLowerCase();
+      renderOrdersTable();
+    });
+  }
+
+  wireAdminSelect('admin-date-filter-select', value => {
+    adminDateFilter = value;
+    renderOrdersTable();
+  });
+  wireAdminSelect('admin-status-filter-select', value => {
+    adminStatusFilter = value;
+    renderOrdersTable();
+  });
+  wireAdminSelect('admin-agent-filter-select', value => {
+    adminAgentFilter = value;
+    renderOrdersTable();
+  });
+}
+
+function matchesAdminDateFilter(order) {
+  if (adminDateFilter === 'all') return true;
+
+  const created = new Date(order.createdAt);
+  if (isNaN(created)) return false;
+  const now = new Date();
+
+  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const startOfWeekLocal = d => {
+    const s = startOfDay(d);
+    const day = s.getDay();
+    s.setDate(s.getDate() - day);
+    return s;
+  };
+  const startOfMonth = d => new Date(d.getFullYear(), d.getMonth(), 1);
+  const startOfYear = d => new Date(d.getFullYear(), 0, 1);
+
+  switch (adminDateFilter) {
+    case 'today':
+      return created >= startOfDay(now);
+    case 'older_day':
+      return created < startOfDay(now);
+    case 'this_week':
+      return created >= startOfWeekLocal(now);
+    case 'older_week':
+      return created < startOfWeekLocal(now);
+    case 'this_month':
+      return created >= startOfMonth(now);
+    case 'older_month':
+      return created < startOfMonth(now);
+    case 'this_year':
+      return created >= startOfYear(now);
+    case 'older_year':
+      return created < startOfYear(now);
+    default:
+      return true;
+  }
+}
+
+function matchesAdminFilters(order) {
+  if (adminSearchQuery && !String(order.id || '').toLowerCase().includes(adminSearchQuery)) return false;
+  if (!matchesAdminDateFilter(order)) return false;
+  if (adminStatusFilter !== 'all' && order.status !== adminStatusFilter) return false;
+  if (adminAgentFilter !== 'all' && order.phone !== adminAgentFilter) return false;
+  return true;
 }
 
 function renderOrdersTable() {
   const body = document.getElementById('orders-table-body');
   if (!body) return;
 
-  const matchesFilter = ORDERS_TABLE_FILTERS[ordersTableFilter] || ORDERS_TABLE_FILTERS.all;
-  const orders = state.orders.filter(matchesFilter);
+  const orders = (state.orders || []).filter(matchesAdminFilters);
 
   if (!orders.length) {
     body.innerHTML = /*html*/ `<tr><td colspan='7' class='empty-note'>لا توجد طلبات مطابقة</td></tr>`;
-    updateDeleteOrdersBtnState();
     return;
   }
 
-  body.innerHTML = orders.map(o => /*html*/ `
+  const isActionable = status => status !== STATUS_CANCELLED_C && status !== STATUS_CANCELLED_A && status !== STATUS_DELIVERED;
+
+  body.innerHTML = orders.map(o => {
+    const actionable = isActionable(o.status);
+    return `
     <tr data-id='${o.id}'>
       <td>${o.id}</td>
       <td>${o.name || ''}</td>
       <td>${o.phone || ''}</td>
       <td>${(o.total || 0).toFixed(2)} ج.م</td>
-      <td><span class='status-badge ${statusBadgeClass(o.status)}'>${o.status || ''}</span></td>
+      <td><span class='status-badge ${statusBadgeClass(o.status)}${actionable ? ' btn-badge order-status-badge' : ' badge-disabled'}'${actionable ? ` role='button' tabindex='0' title='${o.status === STATUS_UNCONFIRMED ? 'إلغاء الطلب' : 'تعديل الحالة'}'` : ''}>${o.status || ''}</span></td>
       <td>${o.driveFolderUrl ? `<a href='${o.driveFolderUrl}' target='_blank' rel='noopener'>عرض الملفات</a>` : '-'}</td>
       <td>${formatDate(o.createdAt)}</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 
-  updateDeleteOrdersBtnState();
+  body.querySelectorAll('.order-status-badge').forEach(badge => {
+    badge.addEventListener('click', e => {
+      e.stopPropagation();
+      openOrderStatusModal(badge.closest('tr').dataset.id);
+    });
+  });
 }
 
-function updateDeleteOrdersBtnState() {
-  const btn = document.getElementById('delete-orders-btn');
-  if (!btn) return;
-  const matchesFilter = ORDERS_TABLE_FILTERS[ordersTableFilter] || ORDERS_TABLE_FILTERS.all;
-  btn.disabled = !(state.orders || []).some(matchesFilter);
+function openOrderStatusModal(id) {
+  const order = (state.orders || []).find(o => o.id === id);
+  if (!order) return;
+
+  if (order.status === STATUS_UNCONFIRMED) {
+    openAdminCancelOnlyModal(order);
+    return;
+  }
+
+  const canEdit = order.status !== STATUS_CANCELLED_C && order.status !== STATUS_CANCELLED_A && order.status !== STATUS_DELIVERED;
+
+  openAdminForm({
+    title: `طلب رقم ${order.id}`,
+    submitLabel: 'حفظ',
+    fields: [
+      { key: 'status', label: 'الحالة', value: order.status },
+    ],
+    onSubmit: async (values, showMessage) => {
+      const status = values.status;
+      if (!ADMIN_SETTABLE_STATUSES.includes(status)) {
+        showMessage('اختر حالة صحيحة');
+        return;
+      }
+      if (status === order.status) {
+        closeAdminForm();
+        return;
+      }
+
+      const res = await authFetch('orders/edit-status', { method: 'POST', body: JSON.stringify({ id: order.id, status }) });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        if (data.error === 'edit_locked') {
+          if (data.status) order.status = data.status;
+          showMessage('لم يعد بإمكانك تعديل حالة هذا الطلب');
+          closeAdminForm();
+          renderOrdersTable();
+        } else {
+          showMessage('حدث خطأ، حاول مرة أخرى');
+        }
+        return;
+      }
+
+      order.status = data.status || status;
+      closeAdminForm();
+      renderOrdersTable();
+    }
+  });
+
+  replaceStatusFieldWithSelect(order, canEdit);
+}
+
+function openAdminCancelOnlyModal(order) {
+  openAdminForm({
+    title: `طلب رقم ${order.id}`,
+    submitLabel: 'إلغاء الطلب',
+    fields: [],
+    onSubmit: async (values, showMessage) => {
+      if (!await askConfirm('سيتم إلغاء الطلب نهائيًا ولا يمكن التراجع عن ذلك، هل أنت متأكد؟')) return;
+
+      const res = await authFetch('orders/cancel', { method: 'POST', body: JSON.stringify({ id: order.id }) });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        if (data.error === 'edit_locked') {
+          if (data.status) order.status = data.status;
+          showMessage('لم يعد بإمكانك إلغاء هذا الطلب');
+          closeAdminForm();
+          renderOrdersTable();
+        } else {
+          showMessage('حدث خطأ، حاول مرة أخرى');
+        }
+        return;
+      }
+
+      order.status = data.status || order.status;
+      closeAdminForm();
+      renderOrdersTable();
+    }
+  });
+
+  const fieldsWrap = document.getElementById('admin-form-fields');
+  if (fieldsWrap) {
+    fieldsWrap.innerHTML = /*html*/ `
+      <p class='modal-sub'>هذا الطلب بانتظار تأكيد العميل، ولا يمكنك سوى إلغاؤه.</p>
+    `;
+  }
+
+  const submitBtn = document.getElementById('admin-form-submit');
+  if (submitBtn) submitBtn.classList.add('btn-danger');
+}
+
+function replaceStatusFieldWithSelect(order, canEdit) {
+  const oldInput = document.getElementById('field-status');
+  if (!oldInput) return;
+
+  const wrap = document.createElement('div');
+  wrap.innerHTML = /*html*/ `
+    <div class='menu-select' id='status-field-select'>
+      <button type='button' class='menu-select-toggle wide-select'${canEdit ? '' : ' disabled'}>
+        <span class='menu-select-label'>${order.status}</span>
+        <i class='fa-solid fa-chevron-down'></i>
+      </button>
+      <ul class='menu-select-menu' role='listbox'>
+        ${ADMIN_SETTABLE_STATUSES.map(s => `<li class='menu-option${s === order.status ? ' selected' : ''}' data-value='${s}' role='option'>${s}</li>`).join('')}
+      </ul>
+    </div>
+    <input type='hidden' id='field-status' value='${order.status}'>
+  `;
+
+  const fragment = document.createDocumentFragment();
+  while (wrap.firstChild) fragment.appendChild(wrap.firstChild);
+  oldInput.replaceWith(fragment);
+
+  if (canEdit) {
+    wireAdminSelect('status-field-select', value => {
+      const hidden = document.getElementById('field-status');
+      if (hidden) hidden.value = value;
+    });
+  }
+
+  const submitBtn = document.getElementById('admin-form-submit');
+  if (submitBtn) submitBtn.style.display = canEdit ? '' : 'none';
 }

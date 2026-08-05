@@ -334,17 +334,14 @@ async function submitOrder() {
       return;
     }
 
-    notify(`تم إرسال طلبك بنجاح \nرقم الطلب: ${data.orderId}\nيرجى حفظ رقم الطلب لمتابعة حالته لاحقًا من قسم 'متابعة الطلب'`);
-
-    const followupInput = document.getElementById('followup-input');
-    if (followupInput) followupInput.value = data.orderId;
+    notify(`تم إرسال طلبك بنجاح\nرقم الطلب: ${data.orderId}\nالطلب قيد الانتظار لحين تأكيده من جدول 'سجل الطلبات' أدناه`);
 
     if (typeof prependOrderToLog === 'function') {
       prependOrderToLog({
         id: data.orderId,
         itemsCount: state.rows.length,
         total: data.total,
-        status: 'قيد المراجعة',
+        status: STATUS_UNCONFIRMED,
         notes,
         driveFolderUrl: data.folderUrl,
         createdAt: new Date().toISOString(),
@@ -417,7 +414,7 @@ async function refreshFollowUpOrder(orderCode) {
       return false;
     }
 
-    followUpOrder = { id: data.id, notes: data.notes || '', status: data.status, canEdit: Boolean(data.canEdit) };
+    followUpOrder = { id: data.id, notes: data.notes || '', status: data.status, canEdit: Boolean(data.canEdit), canConfirm: Boolean(data.canConfirm) };
     renderFollowUpDetails();
     return true;
   } catch (e) {
@@ -426,12 +423,46 @@ async function refreshFollowUpOrder(orderCode) {
   }
 }
 
+function getOrCreateFollowUpConfirmBtn() {
+  let btn = document.getElementById('followup-confirm-btn');
+  if (btn) return btn;
+
+  const cancelBtn = document.getElementById('followup-cancel-btn');
+  if (!cancelBtn) return null;
+
+  btn = document.createElement('button');
+  btn.type = 'button';
+  btn.id = 'followup-confirm-btn';
+  btn.className = cancelBtn.className;
+  btn.textContent = 'تأكيد الطلب';
+  cancelBtn.parentNode.insertBefore(btn, cancelBtn);
+  btn.addEventListener('click', confirmFollowUpOrder);
+  return btn;
+}
+
+function getOrCreateFollowUpIrreversibleNote() {
+  let note = document.getElementById('followup-irreversible-note');
+  if (note) return note;
+
+  const cancelBtn = document.getElementById('followup-cancel-btn');
+  if (!cancelBtn) return null;
+
+  note = document.createElement('p');
+  note.id = 'followup-irreversible-note';
+  note.className = 'modal-sub';
+  note.textContent = 'سيتم تأكيد الطلب أو إلغاؤه بشكل نهائي، ولا يمكن التراجع عن أي من الإجراءين.';
+  cancelBtn.parentNode.insertBefore(note, cancelBtn.nextSibling);
+  return note;
+}
+
 function renderFollowUpDetails() {
   const detailsEl = document.getElementById('followup-details');
   const resultEl = document.getElementById('followup-result');
   const notesInput = document.getElementById('followup-notes-input');
   const saveBtn = document.getElementById('followup-save-note-btn');
   const cancelBtn = document.getElementById('followup-cancel-btn');
+  const confirmBtn = getOrCreateFollowUpConfirmBtn();
+  const irreversibleNote = getOrCreateFollowUpIrreversibleNote();
   if (!followUpOrder) return;
 
   if (resultEl) {
@@ -443,6 +474,8 @@ function renderFollowUpDetails() {
   saveBtn.style.display = followUpOrder.canEdit ? '' : 'none';
   saveBtn.disabled = true;
   cancelBtn.style.display = followUpOrder.canEdit ? '' : 'none';
+  if (confirmBtn) confirmBtn.style.display = followUpOrder.canConfirm ? '' : 'none';
+  if (irreversibleNote) irreversibleNote.style.display = followUpOrder.canConfirm ? '' : 'none';
 
   detailsEl.style.display = '';
 }
@@ -479,6 +512,38 @@ async function saveFollowUpNote() {
     notify('تعذر الاتصال بالخادم');
   } finally {
     updateSaveNoteBtnState();
+  }
+}
+
+async function confirmFollowUpOrder() {
+  if (!followUpOrder || !followUpOrder.canConfirm) return;
+
+  const confirmBtn = document.getElementById('followup-confirm-btn');
+  if (confirmBtn) confirmBtn.disabled = true;
+  try {
+    const res = await fetch(`${state.endpoint}/?action=orders/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: followUpOrder.id }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      if (data.error === 'edit_locked') {
+        notify('لم يعد بإمكانك تأكيد هذا الطلب، حالته تغيّرت. جارٍ تحديث البيانات...');
+        await refreshFollowUpOrder();
+      } else {
+        notify('تعذر تأكيد الطلب');
+      }
+      return;
+    }
+    followUpOrder.status = data.status;
+    followUpOrder.canConfirm = false;
+    renderFollowUpDetails();
+  } catch (e) {
+    console.error(e);
+    notify('تعذر الاتصال بالخادم');
+  } finally {
+    if (confirmBtn) confirmBtn.disabled = false;
   }
 }
 

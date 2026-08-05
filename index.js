@@ -3,13 +3,13 @@ const state = {
   endpoint: 'https://rowad-printer.asem-sharif-august.workers.dev',
   session: null,
   materials: [],
-  admins: [],
   agents: [],
   orders: [],
   pricingMap: null, // override
   rows: [] // { id, file, url, name, width, height, materialName, qty }
 };
 
+const CUSTOM = true;
 initApplication();
 
 // ---------- ---------- App Launch ---------- ---------- ----------
@@ -183,6 +183,9 @@ function openAdminForm({ title, fields, submitLabel, onSubmit }) {
   const messageEl = document.getElementById('admin-form-message');
   let submitBtn = document.getElementById('admin-form-submit');
 
+  const staleCancelBtn = document.getElementById('agent-confirm-cancel-btn');
+  if (staleCancelBtn) staleCancelBtn.remove();
+
   titleEl.textContent = title;
   submitBtn.textContent = submitLabel;
   messageEl.textContent = '';
@@ -207,6 +210,8 @@ function openAdminForm({ title, fields, submitLabel, onSubmit }) {
   const freshSubmit = submitBtn.cloneNode(true);
   submitBtn.replaceWith(freshSubmit);
   submitBtn = freshSubmit;
+  submitBtn.style.display = '';
+  submitBtn.classList.remove('btn-danger');
 
   submitBtn.addEventListener('click', async () => {
     const values = {};
@@ -347,7 +352,7 @@ function renderBody() {
   const linksEl = document.getElementById('nav-links');
   const toggleBtn = document.getElementById('nav-toggle');
   const ctaBtn = document.getElementById('cta-define');
-  const showSectionNav = !state.session || state.session.role === 'agent';
+  const showSectionNav = Boolean(state.session) && state.session.role === 'agent';
 
   linksEl.style.display = showSectionNav ? '' : 'none';
   toggleBtn.style.display = showSectionNav ? '' : 'none';
@@ -365,21 +370,19 @@ function renderBody() {
     state.pricingMap = null;
     heroEl.style.display = '';
     navName.textContent = 'مطبعة الرواد';
-    renderContainer();
+    const containerEl = document.getElementById('container');
+    containerEl.innerHTML = '';
+    containerEl.classList.remove('has-content');
     return;
   }
 
-  const role = { root: 'المدير', agent: 'مندوب', admin: 'مسؤول' }[state.session.role.toLowerCase()];
+  const role = { root: 'المدير', agent: 'مندوب' }[state.session.role.toLowerCase()];
   navName.textContent = `${state.session.name} (${role})`;
 
   if (state.session.role === 'root') {
     state.pricingMap = null;
     heroEl.style.display = 'none';
     renderRootView();
-  } else if (state.session.role === 'admin') {
-    state.pricingMap = null;
-    heroEl.style.display = 'none';
-    renderAdminView();
   } else {
     state.pricingMap = state.session.pricingMap || null;
     heroEl.style.display = '';

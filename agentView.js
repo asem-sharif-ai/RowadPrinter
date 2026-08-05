@@ -11,12 +11,13 @@ function renderContainer() {
         <div class='materials-grid' id='materials-grid'></div>
       </section>
     `;
+    container.classList.add('has-content');
     renderMaterials();
     return;
   }
 
   container.innerHTML = /*html*/ `
-    <section class='materials-section' id='materials'>
+    <section class='materials-section top-item' id='materials'>
       <h2 class='section-title'>الخامات المتاحة</h2>
       <p class='section-sub'>اختر الخامة المناسبة لطلبك، السعر بالجنيه لكل متر مربع</p>
       <div class='materials-grid' id='materials-grid'></div>
@@ -56,34 +57,6 @@ function renderContainer() {
         </div>
       </div>
     </section>
-    <section class='order-section' id='follow-up'>
-      <h2 class='section-title'>متابعة الطلب</h2>
-      <p class='section-sub'>أدخل رقم الطلب لعرض حالته أو تعديل ملاحظاتك</p>
-      <div class='order-panel'>
-        <div class='followup-row'>
-          <div class='after-row'>
-            <div class='followup-header-wrap'>
-                <label for='followup-input'>رقم الطلب</label>
-                <p class='followup-result' id='followup-result'></p>
-            </div>
-            <input type='text' id='followup-input' class='form-input' placeholder='أدخل رقم الطلب'>
-          </div>
-          <button class='btn-primary followup-btn' id='followup-search-btn' type='button'>
-            <i class='fa-solid fa-magnifying-glass'></i> بحث
-          </button>
-        </div>
-        <div class='followup-details' id='followup-details' style='display: none;'>
-          <div class='after-row notes-row'>
-            <label for='followup-notes-input'>الملاحظات</label>
-            <div class='followup-header-wrap'>
-                <input type='text' class='form-input' id='followup-notes-input' placeholder='لا توجد ملاحظات'>
-                <button class='btn-success followup-btn' id='followup-save-note-btn' type='button'><i class='fa-solid fa-floppy-disk'></i>تحديث</button>
-                <button class='btn-danger followup-btn' id='followup-cancel-btn' type='button'><i class='fa-solid fa-ban'></i>إلغاء الطلب</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
 
     ${isRealAgent ? /*html*/ `
     <section class='order-section' id='orders-log'>
@@ -93,7 +66,7 @@ function renderContainer() {
         <table class='admin-table'>
           <thead>
             <tr>
-              <th>رقم الطلب</th> <th>عدد القطع</th> <th>الإجمالي</th> <th>الحالة</th> <th>الملفات</th> <th>التاريخ</th>
+              <th>رقم الطلب</th> <th>الإجمالي</th> <th>الحالة</th> <th>الملفات</th> <th>الملاحظات</th> <th>التاريخ</th>
             </tr>
           </thead>
           <tbody id='orders-log-table-body'>
@@ -104,10 +77,10 @@ function renderContainer() {
     </section>
     ` : ''}
   `;
+  container.classList.add('has-content');
 
   renderMaterials();
   wireOrderSection();
-  wireFollowUpSection();
 
   if (isRealAgent) { loadOrdersLog(); }
 }
@@ -134,7 +107,6 @@ function renderMaterials() {
       <img src='${m.image || ''}' alt='${m.name || ''}' loading='lazy' onerror='this.style.opacity=0'>
       <div class='material-body'>
         <div class='material-name'>${m.name || ''}</div>
-        <div class='material-desc'>${m.desc || ''}</div>
         ${m.available === false
           ? /*html*/ `<span class='status-badge unavailable'>غير متاحة</span>`
           : hasCustomPricing
@@ -184,14 +156,203 @@ function renderOrdersLogTable(orders) {
     return;
   }
 
+  const isEditable = status => status === STATUS_UNCONFIRMED || status === STATUS_OPTIONS[1];
+
   body.innerHTML = orders.map(o => /*html*/ `
-    <tr>
+    <tr data-id='${o.id}'>
       <td>${o.id}</td>
-      <td>${o.itemsCount || 0}</td>
       <td>${(o.total || 0).toFixed(2)} ج.م</td>
-      <td><span class='status-badge ${statusBadgeClass(o.status)}'>${o.status || ''}</span></td>
+      <td>
+        <span class='status-badge ${statusBadgeClass(o.status)}${isEditable(o.status) ? ' btn-badge order-status-badge' : ' badge-disabled'}'${isEditable(o.status) ? ` role='button' tabindex='0' title='${o.status === STATUS_UNCONFIRMED ? 'تأكيد أو إلغاء الطلب' : 'إلغاء الطلب'}'` : ''}>${o.status || ''}</span>
+      </td>
       <td>${o.driveFolderUrl ? /*html*/ `<a href='${o.driveFolderUrl}' target='_blank' rel='noopener'>عرض الملفات</a>` : '-'}</td>
+      <td><span class='btn-badge order-notes-link' role='button' tabindex='0'>تعديل الملاحظات</span></td>
       <td>${formatDate(o.createdAt)}</td>
     </tr>
   `).join('');
+
+  body.querySelectorAll('.order-status-badge').forEach(badge => {
+    badge.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = badge.closest('tr').dataset.id;
+      const order = (state.ordersLog || []).find(o => o.id === id);
+      if (order && order.status === STATUS_UNCONFIRMED) {
+        openAgentConfirmMenu(id);
+      } else {
+        openAgentCancelMenu(id);
+      }
+    });
+  });
+
+  body.querySelectorAll('.order-notes-link').forEach(link => {
+    link.addEventListener('click', e => {
+      e.stopPropagation();
+      openAgentNotesModal(link.closest('tr').dataset.id);
+    });
+  });
+}
+
+function openAgentConfirmMenu(id) {
+  const order = (state.ordersLog || []).find(o => o.id === id);
+  if (!order) return;
+
+  openAdminForm({
+    title: `طلب رقم ${order.id}`,
+    submitLabel: 'تأكيد الطلب',
+    fields: [],
+    onSubmit: async (values, showMessage) => {
+      const res = await authFetch('orders/confirm', { method: 'POST', body: JSON.stringify({ id: order.id }) });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        if (data.error === 'edit_locked') {
+          if (data.status) order.status = data.status;
+          showMessage('لم يعد بإمكانك تأكيد هذا الطلب');
+          closeAdminForm();
+          renderOrdersLogTable(state.ordersLog);
+        } else {
+          showMessage('حدث خطأ، حاول مرة أخرى');
+        }
+        return;
+      }
+
+      order.status = data.status || order.status;
+      closeAdminForm();
+      renderOrdersLogTable(state.ordersLog);
+    }
+  });
+
+  const fieldsWrap = document.getElementById('admin-form-fields');
+  if (fieldsWrap) {
+    fieldsWrap.innerHTML = /*html*/ `
+      <p class='modal-sub'>سيتم تأكيد الطلب أو إلغاؤه بشكل نهائي، ولا يمكن التراجع عن أي من الإجراءين.</p>
+    `;
+  }
+
+  const submitBtn = document.getElementById('admin-form-submit');
+  if (submitBtn && submitBtn.parentNode) {
+    const stale = document.getElementById('agent-confirm-cancel-btn');
+    if (stale) stale.remove();
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.id = 'agent-confirm-cancel-btn';
+    cancelBtn.className = 'btn-danger';
+    cancelBtn.textContent = 'إلغاء الطلب';
+    cancelBtn.style.marginTop = '10px';
+    cancelBtn.style.width = '100%';
+    submitBtn.insertAdjacentElement('afterend', cancelBtn);
+
+    const messageEl = document.getElementById('admin-form-message');
+
+    cancelBtn.addEventListener('click', async () => {
+      cancelBtn.disabled = true;
+      submitBtn.disabled = true;
+      try {
+        const res = await authFetch('orders/cancel', { method: 'POST', body: JSON.stringify({ id: order.id }) });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          if (data.error === 'edit_locked') {
+            if (data.status) order.status = data.status;
+            if (messageEl) {
+              messageEl.textContent = 'لم يعد بإمكانك إلغاء هذا الطلب';
+              messageEl.classList.add('visible');
+            }
+            closeAdminForm();
+            renderOrdersLogTable(state.ordersLog);
+          } else if (messageEl) {
+            messageEl.textContent = 'حدث خطأ، حاول مرة أخرى';
+            messageEl.classList.add('visible');
+          }
+          return;
+        }
+
+        order.status = data.status || order.status;
+        closeAdminForm();
+        renderOrdersLogTable(state.ordersLog);
+      } catch (e) {
+        console.error(e);
+        if (messageEl) {
+          messageEl.textContent = 'تعذر الاتصال بالخادم';
+          messageEl.classList.add('visible');
+        }
+      } finally {
+        cancelBtn.disabled = false;
+        submitBtn.disabled = false;
+      }
+    });
+  }
+}
+
+function openAgentCancelMenu(id) {
+  const order = (state.ordersLog || []).find(o => o.id === id);
+  if (!order) return;
+
+  openAdminForm({
+    title: `طلب رقم ${order.id}`,
+    submitLabel: 'إلغاء الطلب',
+    fields: [],
+    onSubmit: async (values, showMessage) => {
+      if (!await askConfirm('سيتم إلغاء الطلب نهائيًا ولا يمكن التراجع عن ذلك، هل أنت متأكد؟')) return;
+
+      const res = await authFetch('orders/cancel', { method: 'POST', body: JSON.stringify({ id: order.id }) });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        if (data.error === 'edit_locked') {
+          if (data.status) order.status = data.status;
+          showMessage('لم يعد بإمكانك إلغاء هذا الطلب');
+          closeAdminForm();
+          renderOrdersLogTable(state.ordersLog);
+        } else {
+          showMessage('حدث خطأ، حاول مرة أخرى');
+        }
+        return;
+      }
+
+      order.status = data.status || order.status;
+      closeAdminForm();
+      renderOrdersLogTable(state.ordersLog);
+    }
+  });
+
+  const submitBtn = document.getElementById('admin-form-submit');
+  if (submitBtn) submitBtn.classList.add('btn-danger');
+}
+
+function openAgentNotesModal(id) {
+  const order = (state.ordersLog || []).find(o => o.id === id);
+  if (!order) return;
+
+  const canEdit = order.status === STATUS_UNCONFIRMED || order.status === STATUS_OPTIONS[1];
+
+  openAdminForm({
+    title: `ملاحظات الطلب رقم ${order.id}`,
+    submitLabel: 'حفظ',
+    fields: [
+      { key: 'notes', label: 'الملاحظات', value: order.notes || '', disabled: !canEdit },
+    ],
+    onSubmit: async (values, showMessage) => {
+      if (!canEdit) {
+        closeAdminForm();
+        return;
+      }
+
+      const res = await authFetch('orders/edit-note', { method: 'POST', body: JSON.stringify({ id: order.id, notes: values.notes }) });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        if (data.error === 'edit_locked') {
+          showMessage('لم يعد بإمكانك تعديل ملاحظات هذا الطلب');
+          closeAdminForm();
+        } else {
+          showMessage('حدث خطأ، حاول مرة أخرى');
+        }
+        return;
+      }
+
+      order.notes = data.notes;
+      closeAdminForm();
+    }
+  });
+
+  const submitBtn = document.getElementById('admin-form-submit');
+  if (submitBtn) submitBtn.style.display = canEdit ? '' : 'none';
 }
