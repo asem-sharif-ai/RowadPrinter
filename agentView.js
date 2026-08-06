@@ -100,8 +100,6 @@ function renderMaterials() {
     return;
   }
 
-  const hasCustomPricing = Boolean(state.session && state.session.pricingMap);
-
   grid.innerHTML = materials.map(m => /*html*/ `
     <div class='material-card${m.available === false ? ' material-unavailable' : ''}'>
       <img src='${m.image || ''}' alt='${m.name || ''}' loading='lazy' onerror='this.style.opacity=0'>
@@ -109,9 +107,7 @@ function renderMaterials() {
         <div class='material-name'>${m.name || ''}</div>
         ${m.available === false
           ? /*html*/ `<span class='status-badge unavailable'>غير متاحة</span>`
-          : hasCustomPricing
-            ? /*html*/ `<span class='material-price'><del>${m.price || 0}</del> ${effectivePrice(m)} ج.م / م²</span>`
-            : /*html*/ `<span class='material-price'>${effectivePrice(m)} ج.م / م²</span>`}
+          : /*html*/ `<span class='material-price'>${m.price || 0} ج.م / م²</span>`}
       </div>
     </div>
   `).join('');

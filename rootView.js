@@ -61,6 +61,7 @@ async function renderRootView() {
         <button class='admin-tab' data-tab='materials'>إدارة الخامات</button>
         <button class='admin-tab' data-tab='agents'>إدارة المندوبين</button>
         <button class='admin-tab' data-tab='prices'>خطط الأسعار</button>
+        <button class='admin-tab' data-tab='edit-files'>تعديل الملفات</button>
       </div>
       <div class='admin-panel-body' id='admin-panel-body'>
         <p class='empty-note'>جارٍ التحميل...</p>
@@ -84,6 +85,7 @@ async function renderRootView() {
     agents: () => renderAgentsPanel(panelBody),
     prices: () => renderPricesPanel(panelBody),
     orders: () => renderOrdersPanel(panelBody),
+    'edit-files': () => renderEditFilesPanel(panelBody),
   };
 
   document.querySelectorAll('.admin-tab').forEach(tab => {
@@ -864,6 +866,160 @@ function openAdminCancelOnlyModal(order) {
 
   const submitBtn = document.getElementById('admin-form-submit');
   if (submitBtn) submitBtn.classList.add('btn-danger');
+}
+
+// ---------- Edit Files (danger zone: bulk delete orders + Drive files) ---------- ----------
+
+const EDIT_FILES_FILTER_OPTIONS = [
+  { value: 'older_week',  label: 'أقدم من أسبوع' },
+  { value: 'older_month', label: 'أقدم من شهر' },
+  { value: 'delivered',   label: 'تم التسليم والدفع' },
+  { value: 'cancelled_c', label: 'ملغي (العميل)' },
+  { value: 'cancelled_a', label: 'ملغي (المسؤول)' },
+  { value: 'all',         label: 'كل الطلبات (خطر)' },
+];
+
+let editFilesFilter = 'older_week';
+
+function matchesEditFilesFilter(order) {
+  switch (editFilesFilter) {
+    case 'older_week': {
+      const created = new Date(order.createdAt);
+      if (isNaN(created)) return false;
+      return (Date.now() - created.getTime()) > 7 * 24 * 60 * 60 * 1000;
+    }
+    case 'older_month': {
+      const created = new Date(order.createdAt);
+      if (isNaN(created)) return false;
+      return (Date.now() - created.getTime()) > 30 * 24 * 60 * 60 * 1000;
+    }
+    case 'delivered':
+      return order.status === STATUS_DELIVERED;
+    case 'cancelled_c':
+      return order.status === STATUS_CANCELLED_C;
+    case 'cancelled_a':
+      return order.status === STATUS_CANCELLED_A;
+    case 'all':
+      return true;
+    default:
+      return false;
+  }
+}
+
+function renderEditFilesPanel(container) {
+  editFilesFilter = 'older_week';
+
+  container.innerHTML = /*html*/ `
+    <div class='admin-header'>
+      <h3 class='section-title'>تعديل الملفات</h3>
+      <div class='header-controls'>
+        <div class='menu-select' id='edit-files-filter-select'>
+          <button type='button' class='menu-select-toggle wide-select'>
+            <span class='menu-select-label'>${EDIT_FILES_FILTER_OPTIONS[0].label}</span>
+            <i class='fa-solid fa-chevron-down'></i>
+          </button>
+          <ul class='menu-select-menu' role='listbox'>
+            ${EDIT_FILES_FILTER_OPTIONS.map((o, i) => `<li class='menu-option${i === 0 ? ' selected' : ''}' data-value='${o.value}' role='option'>${o.label}</li>`).join('')}
+          </ul>
+        </div>
+        <button class='btn-danger' id='edit-files-delete-btn' type='button'>
+          <i class='fa-solid fa-trash'></i> حذف
+        </button>
+      </div>
+    </div>
+    <div class='admin-table-wrap'>
+      <table class='admin-table'>
+        <thead>
+          <tr>
+            <th>رقم الطلب</th> <th>الاسم</th> <th>الهاتف</th> <th>الإجمالي</th> <th>الحالة</th> <th>الملفات</th> <th>التاريخ</th>
+          </tr>
+        </thead>
+        <tbody id='edit-files-table-body'></tbody>
+      </table>
+    </div>
+  `;
+
+  wireAdminSelect('edit-files-filter-select', value => {
+    editFilesFilter = value;
+    renderEditFilesTable();
+  });
+
+  document.getElementById('edit-files-delete-btn').addEventListener('click', handleEditFilesDelete);
+
+  renderEditFilesTable();
+}
+
+function renderEditFilesTable() {
+  const body = document.getElementById('edit-files-table-body');
+  if (!body) return;
+
+  const orders = (state.orders || []).filter(matchesEditFilesFilter);
+
+  if (!orders.length) {
+    body.innerHTML = /*html*/ `<tr><td colspan='7' class='empty-note'>لا توجد طلبات مطابقة</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = orders.map(o => `
+    <tr data-id='${o.id}'>
+      <td>${o.id}</td>
+      <td>${o.name || ''}</td>
+      <td>${o.phone || ''}</td>
+      <td>${(o.total || 0).toFixed(2)} ج.م</td>
+      <td><span class='status-badge ${statusBadgeClass(o.status)}'>${o.status || ''}</span></td>
+      <td>${o.driveFolderUrl ? `<a href='${o.driveFolderUrl}' target='_blank' rel='noopener'>عرض الملفات</a>` : '-'}</td>
+      <td>${formatDate(o.createdAt)}</td>
+    </tr>
+  `).join('');
+}
+
+async function handleEditFilesDelete() {
+  const matched = (state.orders || []).filter(matchesEditFilesFilter);
+  const filterLabel = EDIT_FILES_FILTER_OPTIONS.find(o => o.value === editFilesFilter)?.label || '';
+
+  if (!matched.length) {
+    notify('لا توجد طلبات مطابقة لهذا الفلتر');
+    return;
+  }
+
+  const confirmMsg = editFilesFilter === 'all'
+    ? `سيتم حذف كل الطلبات (${matched.length}) نهائيًا من قاعدة البيانات ولا يمكن التراجع عن ذلك. هل أنت متأكد؟`
+    : `سيتم حذف ${matched.length} طلب (${filterLabel}) نهائيًا من قاعدة البيانات ولا يمكن التراجع عن ذلك. هل أنت متأكد؟`;
+
+  if (!await askConfirm(confirmMsg)) return;
+
+  const btn = document.getElementById('edit-files-delete-btn');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class='fa-solid fa-spinner fa-spin'></i> جارٍ الحذف...`;
+  }
+
+  try {
+    const res = await authFetch('orders/delete-all', {
+      method: 'POST',
+      body: JSON.stringify({ filter: editFilesFilter }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      notify('تعذر حذف الطلبات، حاول مرة أخرى');
+      return;
+    }
+
+    const deletedIds = new Set(matched.map(o => o.id));
+    state.orders = (state.orders || []).filter(o => !deletedIds.has(o.id));
+
+    notify(`تم حذف ${data.deletedCount ?? matched.length} طلب بنجاح`);
+    renderEditFilesTable();
+  } catch (e) {
+    console.error(e);
+    notify('تعذر حذف الطلبات، حاول مرة أخرى');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
 }
 
 function replaceStatusFieldWithSelect(order, canEdit) {

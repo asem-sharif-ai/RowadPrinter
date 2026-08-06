@@ -10,19 +10,32 @@ const state = {
 };
 
 const CUSTOM = true;
-initApplication();
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApplication);
+} else {
+  initApplication();
+}
 
 // ---------- ---------- App Launch ---------- ---------- ----------
 
 async function initApplication() {
-  await loadMaterials();
+  state.session = loadSession();
+  if (state.session) await loadMaterials();
   renderNav();
   renderBody();
 }
 
 async function loadMaterials() {
+  if (!state.session) {
+    // Materials (and their prices) must never be fetched for anonymous/unverified visitors.
+    state.materials = [];
+    return;
+  }
   try {
-    const res = await fetch(`${state.endpoint}/?action=materials/list`);
+    // authFetch attaches the current session's token, so root gets raw prices
+    // and an agent gets their own pricing_map applied server-side.
+    const res = await authFetch('materials/list');
     const data = await res.json();
     state.materials = data.ok ? data.materials : [];
   } catch (e) {
@@ -101,8 +114,7 @@ function notify(message) {
   overlay.querySelector('#friendly-alert-message').textContent = message;
   overlay.classList.add('active');
 }
-
-function askConfirm(message) {
+function askConfirm(message, invert = false) {
   let overlay = document.getElementById('friendly-confirm-overlay');
 
   if (!overlay) {
@@ -116,8 +128,8 @@ function askConfirm(message) {
         </button>
         <p class='modal-sub' id='friendly-confirm-message'></p>
         <div style='display:flex; gap:10px;'>
-          <button class='btn-primary' id='friendly-confirm-ok-btn' type='button' style='flex:1;'>تأكيد</button>
-          <button class='btn-danger' id='friendly-confirm-cancel-btn' type='button' style='flex:1;'>إلغاء</button>
+          <button id='friendly-confirm-ok-btn' type='button' style='flex:1;'>تأكيد</button>
+          <button id='friendly-confirm-cancel-btn' type='button' style='flex:1;'>إلغاء</button>
         </div>
       </div>
     `;
@@ -131,6 +143,9 @@ function askConfirm(message) {
     const closeBtn = overlay.querySelector('.modal-close');
 
     messageEl.textContent = message;
+
+    okBtn.className = invert ? 'btn-primary' : 'btn-danger';
+    cancelBtn.className = invert ? 'btn-danger' : 'btn-primary';
 
     const cleanup = (result) => {
       overlay.classList.remove('active');
@@ -155,7 +170,6 @@ function askConfirm(message) {
     overlay.classList.add('active');
   });
 }
-
 
 function formatDate(iso) {
   if (!iso) return '—';
@@ -345,7 +359,28 @@ function renderNav() {
 }
 
 function renderBody() {
+  const previousRole = state.session ? state.session.role : null;
   state.session = loadSession();
+  const currentRole = state.session ? state.session.role : null;
+
+  if (currentRole !== previousRole) {
+    if (state.session) {
+      // Just verified (or switched role) — fetch materials now, authenticated,
+      // so root sees raw prices and an agent sees their own pricing_map.
+      loadMaterials().then(() => {
+        // Materials arrived after the initial render below, which ran with an
+        // empty list — re-render the whole container so the order section
+        // (which only appears once materials exist) actually shows up.
+        if (state.session && state.session.role === 'agent' && typeof renderContainer === 'function') {
+          renderContainer();
+          if (typeof prefillContactFields === 'function') prefillContactFields();
+        }
+      });
+    } else {
+      // Logged out — materials (and prices) must not linger for an anonymous view.
+      state.materials = [];
+    }
+  }
 
   const heroEl = document.querySelector('.hero');
 

@@ -103,7 +103,7 @@ function findMaterial(name) {
 
 function calcRowPrice(row) {
   const material = findMaterial(row.materialName);
-  const pricePerM2 = material ? effectivePrice(material) : 0;
+  const pricePerM2 = material ? (material.price || 0) : 0;
   const areaM2 = (parseFloat(row.width) || 0) / 100 * ((parseFloat(row.height) || 0) / 100);
   const qty = parseFloat(row.qty) || 0;
   return areaM2 * pricePerM2 * qty;
@@ -223,8 +223,6 @@ function renderRows() {
 
   updateTotal();
 }
-
-/* ---------- custom material dropdown ---------- */
 
 function closeAllMaterialSelects(except) {
   document.querySelectorAll('.menu-select.open').forEach(el => {
